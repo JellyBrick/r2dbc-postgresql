@@ -34,7 +34,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Bounded (size-limited) {@link StatementCache}.
+ * Bounded {@link StatementCache} limited by the number of cached queries and by their estimated size. The least recently used statements are closed on the server
+ * once either limit is exceeded. Queries too large to ever fit run as unnamed statements.
  */
 final class BoundedStatementCache implements StatementCache {
 
@@ -48,18 +49,52 @@ final class BoundedStatementCache implements StatementCache {
 
     private final int limit;
 
+    private final long maxSizeBytes;
+
+    private long currentSizeBytes;
+
     public BoundedStatementCache(Client client, int limit) {
+        this(client, limit, Long.MAX_VALUE);
+    }
+
+    public BoundedStatementCache(Client client, int limit, long maxSizeBytes) {
         this.client = Assert.requireNonNull(client, "client must not be null");
         if (limit <= 0) {
             throw new IllegalArgumentException("statement cache limit must be greater than zero");
         }
+        if (maxSizeBytes <= 0) {
+            throw new IllegalArgumentException("statement cache size must be greater than zero");
+        }
         this.limit = limit;
+        this.maxSizeBytes = maxSizeBytes;
+    }
+
+    /**
+     * Estimate the memory a cached query costs: two bytes per character for both the original and the native
+     * SQL, plus the cache entry itself.
+     *
+     * @param sql the query
+     * @return estimated size in bytes
+     */
+    static long estimateSize(String sql) {
+        return sql.length() * 4L + 100;
+    }
+
+    /**
+     * refuses entries above half of its budget so one query cannot flush the whole cache.
+     */
+    static boolean fitsInCache(String sql, long maxSizeBytes) {
+        return estimateSize(sql) <= maxSizeBytes / 2;
     }
 
     @Override
     public String getName(Binding binding, String sql) {
         Assert.requireNonNull(binding, "binding must not be null");
         Assert.requireNonNull(sql, "sql must not be null");
+
+        if (!fitsInCache(sql, this.maxSizeBytes)) {
+            return UNNAMED_STATEMENT_NAME;
+        }
 
         String name = get(new CacheKey(sql, binding.getParameterTypes()));
 
@@ -76,25 +111,21 @@ final class BoundedStatementCache implements StatementCache {
         Assert.requireNonNull(binding, "binding must not be null");
         Assert.requireNonNull(sql, "sql must not be null");
 
-        return get(new CacheKey(sql, binding.getParameterTypes())) == null;
+        return !fitsInCache(sql, this.maxSizeBytes) || get(new CacheKey(sql, binding.getParameterTypes())) == null;
     }
 
     @Override
     public void put(Binding binding, String sql, String name) {
 
-        CacheKey key = new CacheKey(sql, binding.getParameterTypes());
-
-        put(key, name);
-
-        if (getCacheSize() <= this.limit) {
+        if (UNNAMED_STATEMENT_NAME.equals(name)) {
             return;
         }
 
-        Map.Entry<CacheKey, String> lastAccessedStatement = getAndRemoveEldest();
-        ExceptionFactory factory = ExceptionFactory.withSql(lastAccessedStatement.getKey().sql);
-        String statementName = lastAccessedStatement.getValue();
+        CacheKey key = new CacheKey(sql, binding.getParameterTypes());
 
-        close(lastAccessedStatement, factory, statementName);
+        for (Map.Entry<CacheKey, String> evicted : putAndEvictOverflow(key, name)) {
+            close(evicted, ExceptionFactory.withSql(evicted.getKey().sql), evicted.getValue());
+        }
     }
 
     @Override
@@ -109,7 +140,10 @@ final class BoundedStatementCache implements StatementCache {
                 }
             }
 
-            toRemove.forEach(this.cache::remove);
+            for (CacheKey key : toRemove) {
+                this.cache.remove(key);
+                this.currentSizeBytes -= estimateSize(key.sql);
+            }
         }
     }
 
@@ -148,36 +182,36 @@ final class BoundedStatementCache implements StatementCache {
     }
 
     /**
-     * Synchronized cache access: Least recently used entry.
+     * Synchronized cache access: Store prepared statement and remove least recently used entries until both limits hold again.
      *
-     * @return least recently used entry
+     * @return removed entries whose statements must be closed
      */
-    private Map.Entry<CacheKey, String> getAndRemoveEldest() {
+    private List<Map.Entry<CacheKey, String>> putAndEvictOverflow(CacheKey key, String preparedName) {
         synchronized (this.cache) {
+            if (this.cache.put(key, preparedName) == null) {
+                this.currentSizeBytes += estimateSize(key.sql);
+            }
+
+            List<Map.Entry<CacheKey, String>> evicted = new ArrayList<>();
             Iterator<Map.Entry<CacheKey, String>> iterator = this.cache.entrySet().iterator();
-            Map.Entry<CacheKey, String> entry = iterator.next();
-            iterator.remove();
-            return entry;
+            while ((this.cache.size() > this.limit || this.currentSizeBytes > this.maxSizeBytes) && iterator.hasNext()) {
+                Map.Entry<CacheKey, String> eldest = iterator.next();
+                iterator.remove();
+                this.currentSizeBytes -= estimateSize(eldest.getKey().sql);
+                evicted.add(eldest);
+            }
+            return evicted;
         }
     }
 
     /**
-     * Synchronized cache access: Store prepared statement.
-     */
-    private void put(CacheKey key, String preparedName) {
-        synchronized (this.cache) {
-            this.cache.put(key, preparedName);
-        }
-    }
-
-    /**
-     * Synchronized cache access: Return the cache size.
+     * Synchronized cache access: Return the estimated size of all cached queries.
      *
-     * @return the cache size.
+     * @return estimated size in bytes
      */
-    private int getCacheSize() {
+    long getCurrentSizeBytes() {
         synchronized (this.cache) {
-            return this.cache.size();
+            return this.currentSizeBytes;
         }
     }
 
@@ -188,6 +222,8 @@ final class BoundedStatementCache implements StatementCache {
             ", counter=" + this.counter +
             ", client=" + this.client +
             ", limit=" + this.limit +
+            ", maxSizeBytes=" + this.maxSizeBytes +
+            ", currentSizeBytes=" + this.currentSizeBytes +
             '}';
     }
 

@@ -120,6 +120,10 @@ public final class PostgresqlConnectionConfiguration {
 
     private final int preparedStatementCacheQueries;
 
+    private final int preparedStatementCacheSizeMiB;
+
+    private final int prepareThreshold;
+
     private final @Nullable SingleHostConfiguration singleHostConfiguration;
 
     private final @Nullable Duration statementTimeout;
@@ -139,6 +143,7 @@ public final class PostgresqlConnectionConfiguration {
                                               ToIntFunction<String> fetchSize, boolean forceBinary, @Nullable Duration lockWaitTimeout, @Nullable LoopResources loopResources, int maxMessageSize,
                                               @Nullable MultiHostConfiguration multiHostConfiguration, LogLevel noticeLogLevel, @Nullable Map<String, String> options,
                                               @Nullable Publisher<CharSequence> password, boolean preferAttachedBuffers, int preparedStatementCacheQueries,
+                                              int preparedStatementCacheSizeMiB, int prepareThreshold,
                                               @Nullable String schema, @Nullable SingleHostConfiguration singleHostConfiguration, SSLConfig sslConfig, @Nullable Duration statementTimeout,
                                               boolean tcpKeepAlive, boolean tcpNoDelay, TimeZone timeZone, Publisher<String> username) {
         this.applicationName = Assert.requireNonNull(applicationName, "applicationName must not be null");
@@ -175,6 +180,8 @@ public final class PostgresqlConnectionConfiguration {
         this.password = password;
         this.preferAttachedBuffers = preferAttachedBuffers;
         this.preparedStatementCacheQueries = preparedStatementCacheQueries;
+        this.preparedStatementCacheSizeMiB = preparedStatementCacheSizeMiB;
+        this.prepareThreshold = prepareThreshold;
         this.singleHostConfiguration = singleHostConfiguration;
         this.sslConfig = sslConfig;
         this.tcpKeepAlive = tcpKeepAlive;
@@ -285,6 +292,14 @@ public final class PostgresqlConnectionConfiguration {
 
     int getPreparedStatementCacheQueries() {
         return this.preparedStatementCacheQueries;
+    }
+
+    int getPreparedStatementCacheSizeMiB() {
+        return this.preparedStatementCacheSizeMiB;
+    }
+
+    int getPrepareThreshold() {
+        return this.prepareThreshold;
     }
 
     @Nullable
@@ -411,6 +426,10 @@ public final class PostgresqlConnectionConfiguration {
 
         private int preparedStatementCacheQueries = -1;
 
+        private int preparedStatementCacheSizeMiB = -1;
+
+        private int prepareThreshold = 1;
+
         private @Nullable String schema;
 
         private SingleHostConfiguration.@Nullable Builder singleHostConfiguration;
@@ -515,7 +534,8 @@ public final class PostgresqlConnectionConfiguration {
 
             return new PostgresqlConnectionConfiguration(this.applicationName, this.autodetectExtensions, this.channelBindingMode, this.compatibilityMode, this.connectTimeout, this.database,
                 this.errorResponseLogLevel, this.extensions, this.exceptionLogLevel, this.fetchSize, this.forceBinary, this.lockWaitTimeout, this.loopResources, this.maxMessageSize,
-                multiHostConfiguration, this.noticeLogLevel, this.options, this.password, this.preferAttachedBuffers, this.preparedStatementCacheQueries, this.schema, singleHostConfiguration,
+                multiHostConfiguration, this.noticeLogLevel, this.options, this.password, this.preferAttachedBuffers, this.preparedStatementCacheQueries,
+                this.preparedStatementCacheSizeMiB, this.prepareThreshold, this.schema, singleHostConfiguration,
                 this.createSslConfig(this.sslSni), this.statementTimeout, this.tcpKeepAlive, this.tcpNoDelay, this.timeZone, this.username);
         }
 
@@ -881,6 +901,35 @@ public final class PostgresqlConnectionConfiguration {
         }
 
         /**
+         * Configure the preparedStatementCacheSizeMiB, the maximum estimated size of the queries cached in each connection. The default is {@code -1}, meaning there's
+         * no limit. The value of {@code 0} disables the cache. A query is estimated the same way as pgjdbc's {@code preparedStatementCacheSizeMiB}, and a query larger
+         * than half of the limit is never cached.
+         *
+         * @param preparedStatementCacheSizeMiB the preparedStatementCacheSizeMiB
+         * @return this {@link Builder}
+         * @since 1.1.4
+         */
+        public Builder preparedStatementCacheSizeMiB(int preparedStatementCacheSizeMiB) {
+            this.preparedStatementCacheSizeMiB = preparedStatementCacheSizeMiB;
+            return this;
+        }
+
+        /**
+         * Configure the prepareThreshold, the number of executions of the same query before it is prepared on the server and cached. Earlier executions run as unnamed
+         * statements. The default is {@code 1}, preparing a query on its first execution. The value of {@code 0} never prepares queries on the server.
+         *
+         * @param prepareThreshold the prepareThreshold
+         * @return this {@link Builder}
+         * @throws IllegalArgumentException if {@code prepareThreshold} is {@code negative}
+         * @since 1.1.4
+         */
+        public Builder prepareThreshold(int prepareThreshold) {
+            Assert.isTrue(prepareThreshold >= 0, "prepareThreshold must be greater or equal zero");
+            this.prepareThreshold = prepareThreshold;
+            return this;
+        }
+
+        /**
          * Configure the schema.
          *
          * @param schema the schema
@@ -1217,6 +1266,8 @@ public final class PostgresqlConnectionConfiguration {
                 ", parameters='" + this.options + '\'' +
                 ", password='" + obfuscate(this.password != null ? 4 : 0) + '\'' +
                 ", preparedStatementCacheQueries='" + this.preparedStatementCacheQueries + '\'' +
+                ", preparedStatementCacheSizeMiB='" + this.preparedStatementCacheSizeMiB + '\'' +
+                ", prepareThreshold='" + this.prepareThreshold + '\'' +
                 ", schema='" + this.schema + '\'' +
                 ", singleHostConfiguration='" + this.singleHostConfiguration + '\'' +
                 ", sslContextBuilderCustomizer='" + this.sslContextBuilderCustomizer + '\'' +

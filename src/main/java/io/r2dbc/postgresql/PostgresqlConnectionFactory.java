@@ -133,7 +133,8 @@ public final class PostgresqlConnectionFactory implements ConnectionFactory {
 
                 DefaultCodecs codecs = new DefaultCodecs(client.getByteBufAllocator(), this.configuration.isPreferAttachedBuffers(),
                     () -> client.getTimeZone().map(TimeZone::toZoneId).orElse(defaultZone));
-                StatementCache statementCache = StatementCache.fromPreparedStatementCacheQueries(client, this.configuration.getPreparedStatementCacheQueries());
+                StatementCache statementCache = StatementCache.create(client, this.configuration.getPreparedStatementCacheQueries(),
+                    this.configuration.getPreparedStatementCacheSizeMiB(), this.configuration.getPrepareThreshold());
 
                 // early connection object to retrieve initialization details
                 PostgresqlConnection earlyConnection = new PostgresqlConnection(client, codecs, DefaultPortalNameSupplier.INSTANCE, statementCache, IsolationLevel.READ_COMMITTED,

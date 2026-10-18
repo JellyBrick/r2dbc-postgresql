@@ -339,4 +339,34 @@ final class PostgresqlConnectionConfigurationUnitTests {
             .build();
     }
 
+    @Test
+    void statementCacheLimitsDefaultToUnlimitedAndPrepareOnFirstExecution() {
+        PostgresqlConnectionConfiguration configuration = PostgresqlConnectionConfiguration.builder()
+            .host("test-host")
+            .username("test-username")
+            .build();
+
+        assertThat(configuration.getPreparedStatementCacheSizeMiB()).isEqualTo(-1);
+        assertThat(configuration.getPrepareThreshold()).isEqualTo(1);
+    }
+
+    @Test
+    void statementCacheLimits() {
+        PostgresqlConnectionConfiguration configuration = PostgresqlConnectionConfiguration.builder()
+            .host("test-host")
+            .username("test-username")
+            .preparedStatementCacheSizeMiB(5)
+            .prepareThreshold(5)
+            .build();
+
+        assertThat(configuration.getPreparedStatementCacheSizeMiB()).isEqualTo(5);
+        assertThat(configuration.getPrepareThreshold()).isEqualTo(5);
+    }
+
+    @Test
+    void builderNegativePrepareThreshold() {
+        assertThatIllegalArgumentException().isThrownBy(() -> PostgresqlConnectionConfiguration.builder().prepareThreshold(-1))
+            .withMessage("prepareThreshold must be greater or equal zero");
+    }
+
 }

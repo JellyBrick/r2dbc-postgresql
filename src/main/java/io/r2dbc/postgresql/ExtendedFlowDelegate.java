@@ -380,8 +380,12 @@ class ExtendedFlowDelegate {
             incrementAndGet();
             List<FrontendMessage.DirectEncoder> messagesToSend = new ArrayList<>(6);
 
-            if (isPrepareRequired()) {
-                messagesToSend.add(new Parse(getStatementName(), this.binding.getParameterTypes(), this.sql));
+            boolean prepareRequired = isPrepareRequired();
+            String statementName = getStatementName();
+
+            // The unnamed statement is replaced by every Parse, so binding to it is only safe right after parsing this query.
+            if (prepareRequired || StatementCache.UNNAMED_STATEMENT_NAME.equals(statementName)) {
+                messagesToSend.add(new Parse(statementName, this.binding.getParameterTypes(), this.sql));
             }
 
             for (ByteBuf value : this.values) {
@@ -389,7 +393,7 @@ class ExtendedFlowDelegate {
                 value.touch("ExtendedFlowOperator").retain();
             }
 
-            Bind bind = new Bind(this.portal, this.binding.getParameterFormats(), this.values, ExtendedQueryMessageFlow.resultFormat(this.forceBinary), getStatementName());
+            Bind bind = new Bind(this.portal, this.binding.getParameterFormats(), this.values, ExtendedQueryMessageFlow.resultFormat(this.forceBinary), statementName);
 
             messagesToSend.add(bind);
             messagesToSend.add(new Describe(this.portal, PORTAL));

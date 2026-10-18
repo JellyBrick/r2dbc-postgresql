@@ -21,6 +21,11 @@ import io.r2dbc.postgresql.client.Client;
 
 interface StatementCache {
 
+    /**
+     * Name of the unnamed statement. A query bound to it must be parsed in the same message batch.
+     */
+    String UNNAMED_STATEMENT_NAME = "";
+
     String getName(Binding binding, String sql);
 
     boolean requiresPrepare(Binding binding, String sql);
@@ -29,14 +34,28 @@ interface StatementCache {
 
     void evict(String sql);
 
-    static StatementCache fromPreparedStatementCacheQueries(Client client, int preparedStatementCacheQueries) {
-        if (preparedStatementCacheQueries < 0) {
-            return new IndefiniteStatementCache();
-        }
-        if (preparedStatementCacheQueries == 0) {
+    /**
+     * Create the statement cache for a connection.
+     *
+     * @param client                        the client used to close evicted statements
+     * @param preparedStatementCacheQueries maximum number of cached queries, {@code -1} for no limit, {@code 0} disables the cache
+     * @param preparedStatementCacheSizeMiB maximum estimated size of cached queries in MiB, {@code -1} for no limit, {@code 0} disables the cache
+     * @param prepareThreshold              executions of the same query before it is prepared on the server, {@code 0} never prepares
+     * @return the statement cache
+     */
+    static StatementCache create(Client client, int preparedStatementCacheQueries, int preparedStatementCacheSizeMiB, int prepareThreshold) {
+        if (preparedStatementCacheQueries == 0 || preparedStatementCacheSizeMiB == 0 || prepareThreshold == 0) {
             return new DisabledStatementCache();
         }
-        return new BoundedStatementCache(client, preparedStatementCacheQueries);
+
+        int maxQueries = preparedStatementCacheQueries < 0 ? Integer.MAX_VALUE : preparedStatementCacheQueries;
+        long maxSizeBytes = preparedStatementCacheSizeMiB < 0 ? Long.MAX_VALUE : preparedStatementCacheSizeMiB * 1024L * 1024L;
+
+        StatementCache cache = preparedStatementCacheQueries < 0 && preparedStatementCacheSizeMiB < 0
+            ? new IndefiniteStatementCache()
+            : new BoundedStatementCache(client, maxQueries, maxSizeBytes);
+
+        return prepareThreshold > 1 ? new ThresholdStatementCache(cache, prepareThreshold, maxQueries, maxSizeBytes) : cache;
     }
 
 }

@@ -93,4 +93,57 @@ class BoundedStatementCacheUnitTests {
         assertThat(cache.getCachedStatementNames()).containsOnly("S_1", "S_2");
     }
 
+    @Test
+    void sizeLimitEvictsLeastRecentlyUsed() {
+
+        TestClient client = TestClient.builder().expectRequest(new CompositeFrontendMessage(new Close("S_0", ExecutionType.STATEMENT), Sync.INSTANCE)).thenRespond(CloseComplete.INSTANCE).build();
+
+        // "foo", "bar" and "baz" are estimated at 112 bytes each, so two fit into 250 bytes.
+        BoundedStatementCache cache = new BoundedStatementCache(client, 100, 250);
+
+        cache.put(new Binding(0), "foo", "S_0");
+        cache.put(new Binding(0), "bar", "S_1");
+        assertThat(cache.getCachedStatementNames()).containsOnly("S_0", "S_1");
+        assertThat(cache.getCurrentSizeBytes()).isEqualTo(224);
+
+        cache.put(new Binding(0), "baz", "S_2");
+        assertThat(cache.getCachedStatementNames()).containsOnly("S_1", "S_2");
+        assertThat(cache.getCurrentSizeBytes()).isEqualTo(224);
+    }
+
+    @Test
+    void queryAboveHalfOfSizeLimitRunsUnnamed() {
+
+        BoundedStatementCache cache = new BoundedStatementCache(mock(Client.class), 100, 223);
+
+        assertThat(cache.requiresPrepare(new Binding(0), "foo")).isTrue();
+        assertThat(cache.getName(new Binding(0), "foo")).isEmpty();
+
+        cache.put(new Binding(0), "foo", "");
+        assertThat(cache.getCachedStatementNames()).isEmpty();
+        assertThat(cache.requiresPrepare(new Binding(0), "foo")).isTrue();
+    }
+
+    @Test
+    void queryAtHalfOfSizeLimitIsCached() {
+
+        BoundedStatementCache cache = new BoundedStatementCache(mock(Client.class), 100, 224);
+
+        assertThat(cache.getName(new Binding(0), "foo")).isEqualTo("S_0");
+        cache.put(new Binding(0), "foo", "S_0");
+        assertThat(cache.requiresPrepare(new Binding(0), "foo")).isFalse();
+    }
+
+    @Test
+    void evictReleasesSize() {
+
+        BoundedStatementCache cache = new BoundedStatementCache(mock(Client.class), 100, 1000);
+
+        cache.put(new Binding(0), "foo", "S_0");
+        cache.evict("foo");
+
+        assertThat(cache.getCachedStatementNames()).isEmpty();
+        assertThat(cache.getCurrentSizeBytes()).isZero();
+    }
+
 }

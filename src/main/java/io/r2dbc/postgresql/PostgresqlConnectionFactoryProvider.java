@@ -186,6 +186,22 @@ public final class PostgresqlConnectionFactoryProvider implements ConnectionFact
     public static final Option<Integer> PREPARED_STATEMENT_CACHE_QUERIES = Option.valueOf("preparedStatementCacheQueries");
 
     /**
+     * Determine the maximum estimated size in MiB of the queries cached in each connection.
+     * The default is {@code -1}, meaning there's no limit. The value of {@code 0} disables the cache.
+     *
+     * @since 1.1.4
+     */
+    public static final Option<Integer> PREPARED_STATEMENT_CACHE_SIZE_MIB = Option.valueOf("preparedStatementCacheSizeMiB");
+
+    /**
+     * Determine the number of executions of the same query before it is prepared on the server.
+     * The default is {@code 1}, preparing a query on its first execution. The value of {@code 0} never prepares queries on the server.
+     *
+     * @since 1.1.4
+     */
+    public static final Option<Integer> PREPARE_THRESHOLD = Option.valueOf("prepareThreshold");
+
+    /**
      * Schema search path (alias for "currentSchema").
      */
     public static final Option<String> SCHEMA = Option.valueOf("schema");
@@ -397,6 +413,8 @@ public final class PostgresqlConnectionFactoryProvider implements ConnectionFact
         mapper.from(PORT).map(OptionMapper::toInteger).to(builder::port);
         mapper.from(PREFER_ATTACHED_BUFFERS).map(OptionMapper::toBoolean).to(builder::preferAttachedBuffers);
         mapper.from(PREPARED_STATEMENT_CACHE_QUERIES).map(OptionMapper::toInteger).to(builder::preparedStatementCacheQueries);
+        mapper.from(PREPARED_STATEMENT_CACHE_SIZE_MIB).map(OptionMapper::toInteger).to(builder::preparedStatementCacheSizeMiB);
+        mapper.from(PREPARE_THRESHOLD).map(OptionMapper::toInteger).to(builder::prepareThreshold);
         mapper.from(STATEMENT_TIMEOUT).map(OptionMapper::toDuration).to(builder::statementTimeout);
         mapper.from(TCP_KEEPALIVE).map(OptionMapper::toBoolean).to(builder::tcpKeepAlive);
         mapper.from(TCP_NODELAY).map(OptionMapper::toBoolean).to(builder::tcpNoDelay);
