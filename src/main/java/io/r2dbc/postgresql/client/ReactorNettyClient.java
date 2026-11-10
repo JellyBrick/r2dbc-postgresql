@@ -414,7 +414,7 @@ public final class ReactorNettyClient implements Client {
         }
 
         if (socketAddress instanceof InetSocketAddress) {
-            tcpClient = tcpClient.resolver(it -> it.roundRobinSelection(true));
+            tcpClient = tcpClient.resolver(BalancedResolverGroup.INSTANCE);
             tcpClient = tcpClient.option(ChannelOption.SO_KEEPALIVE, settings.isTcpKeepAlive());
             tcpClient = tcpClient.option(ChannelOption.TCP_NODELAY, settings.isTcpNoDelay());
         }
