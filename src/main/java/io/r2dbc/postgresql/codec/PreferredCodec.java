@@ -21,7 +21,7 @@ import io.r2dbc.postgresql.message.Format;
 /**
  * Marker interface to indicate a codec expresses preference for certain data types and formats.
  *
- * @since 1.1.1
+ * @since 1.0.9
  */
 interface PreferredCodec {
 

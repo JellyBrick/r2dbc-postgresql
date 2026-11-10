@@ -212,15 +212,15 @@ Listen and Notify provide a simple form of signal or inter-process communication
 sender (notify) and the receiver (listen). The following example uses two connections to illustrate how they work together:
 
 ```java
-PostgresqlConnection sender= …;
-        PostgresqlConnection receiver= …;
+PostgresqlConnection sender = …;
+PostgresqlConnection receiver = …;
 
 Flux<Notification> listen = receiver.createStatement("LISTEN mymessage")
                                 .execute()
                                 .flatMap(PostgresqlResult::getRowsUpdated)
         .thenMany(receiver.getNotifications());
 
-        Mono<Void> notify=sender.createStatement("NOTIFY mymessage, 'Hello World'")
+        Mono<Void> notify = sender.createStatement("NOTIFY mymessage, 'Hello World'")
         .execute()
         .flatMap(PostgresqlResult::getRowsUpdated)
         .then();
@@ -391,7 +391,7 @@ ReplicationRequest replicationRequest = ReplicationRequest.logical()
                                         .build();
 
 Flux<T> replicationStream = replicationConnection.startReplication(replicationRequest).flatMapMany(it -> {
-    return it.map(byteBuf -> {…})
+    return it.map(byteBuf -> …)
         .doOnError(t -> it.close().subscribe());
 });
 ```
