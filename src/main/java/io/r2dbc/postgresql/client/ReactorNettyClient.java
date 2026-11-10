@@ -27,6 +27,7 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -63,6 +64,7 @@ import reactor.core.scheduler.Schedulers;
 import reactor.netty.Connection;
 import reactor.netty.channel.AbortedException;
 import reactor.netty.tcp.TcpClient;
+import reactor.netty.transport.NameResolverProvider;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.concurrent.Queues;
@@ -99,6 +101,8 @@ public final class ReactorNettyClient implements Client {
     private static final Logger logger = Loggers.getLogger(ReactorNettyClient.class);
 
     private static final boolean DEBUG_ENABLED = logger.isDebugEnabled();
+
+    private static final NameResolverProvider NAME_RESOLVER = NameResolverProvider.builder().roundRobinSelection(true).build();
 
     private final ByteBufAllocator byteBufAllocator;
 
@@ -414,7 +418,6 @@ public final class ReactorNettyClient implements Client {
         }
 
         if (socketAddress instanceof InetSocketAddress) {
-            tcpClient = tcpClient.resolver(BalancedResolverGroup.INSTANCE);
             tcpClient = tcpClient.option(ChannelOption.SO_KEEPALIVE, settings.isTcpKeepAlive());
             tcpClient = tcpClient.option(ChannelOption.TCP_NODELAY, settings.isTcpNoDelay());
         }
@@ -423,7 +426,7 @@ public final class ReactorNettyClient implements Client {
             tcpClient = tcpClient.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, settings.getConnectTimeoutMs());
         }
 
-        return tcpClient.doOnChannelInit((observer, channel, remoteAddress) -> {
+        TcpClient client = tcpClient.doOnChannelInit((observer, channel, remoteAddress) -> {
             ChannelPipeline pipeline = channel.pipeline();
 
             InternalLogger logger = InternalLoggerFactory.getInstance(ReactorNettyClient.class);
@@ -433,7 +436,20 @@ public final class ReactorNettyClient implements Client {
             }
 
             registerSslHandler(socketAddress, settings.getSslConfig(), channel);
-        }).connect().flatMap(it ->
+        });
+
+        if (!(socketAddress instanceof InetSocketAddress)) {
+            return connect(client, settings);
+        }
+
+        // Reactor Netty never closes a resolver configured on a client and each resolver holds a UDP socket.
+        // Names are only resolved while connecting, so the resolver lives exactly as long as the connect attempt.
+        return Mono.using(() -> NAME_RESOLVER.newNameResolverGroup(client.configuration().loopResources(), client.configuration().isPreferNative()),
+            resolver -> connect(client.resolver(resolver), settings), AddressResolverGroup::close);
+    }
+
+    private static Mono<ReactorNettyClient> connect(TcpClient tcpClient, ConnectionSettings settings) {
+        return tcpClient.connect().flatMap(it ->
             getSslHandshake(it.channel()).thenReturn(new ReactorNettyClient(it, settings))
         );
     }
